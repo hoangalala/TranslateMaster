@@ -1,5 +1,8 @@
 from time import sleep
-import os
+from collections import defaultdict
+import os, shutil
+import numpy as np
+
 from PyQt6 import QtWidgets
 from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog
 from PyQt6.QtGui import QPixmap
@@ -82,6 +85,8 @@ translate_destination_en = "EN-US"
 deepl_site_url = "https://www.deepl.com/en/translator"
 cwd = os.getcwd()
 google_executable_path = cwd + "\\chromedriver_win32\\chromedriver.exe"
+process_factory_folder_path = cwd + "\\process_factory"
+segmented_images_folder_path = process_factory_folder_path + "\\segmented_images"
 
 
 # # Experimental
@@ -157,106 +162,47 @@ class window(QMainWindow):
             "All Files (*);; Python Files (*.py);; PNG Files (*.png)",
         )
         image_path = image_path[0]
-        if self.string_not_blank(image_path):
+        if self.check_string_not_blank(image_path):
             self.process_image(image_path)
         else:
             print("BlankOrEmpty")
 
     # =============== Process Image =============== #
     def process_image(self, image_path):
-        self.captch_ex(image_path)
+        image_copy_path = self.create_image_copy(image_path)
 
-        pixmap = QPixmap(image_path)
+        contour_list = self.detect_text_boxes(image_copy_path)
+
+        cropped_text_boxes = self.crop_text_boxes_from_image(image_copy_path, contour_list)
+
+        self.scan_text_box_for_text(image_path)
+
+        pixmap = QPixmap(image_copy_path)
         self.pre_translate_image_viewer.setPhoto(pixmap)
 
-        self.scan_image_for_text(image_path)
 
-    # =============== Scan image for text =============== #
-    def scan_image_for_text(self, image_path):
-        img = Image.open(image_path)
 
-        mode_index = self.combo_box_mode.currentIndex()
-            
-        # Mode: Horizontal
-        if mode_index == horizontal_mode_index:
-            pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
-            text = pytesseract.image_to_string(img, lang = pytesseract_jpn_lgn, config = tessdata_dir_config)
-        # Mode: Vertical
-        elif mode_index == vertical_mode_index:
-            text = pytesseract.image_to_string(img, lang = pytesseract_jpn_vert_lgn, config = tessdata_dir_config)
-        # Mode: MG
-        elif mode_index == mg_mode_index:
-            mocr = MangaOcr()
-            text = mocr(image_path)
 
-        if self.string_not_blank(text):
-            self.text_box_original.setText(text)
-            self.translate_text(text)
-        else:
-            return
 
-    # =============== Translate text =============== #
-    def translate_text(self, untranslated_text):
-        if not self.string_not_blank(untranslated_text):
-            return
+    
 
-        if self.is_browser_alive(self.driver):
-            driver = self.driver
 
-        else:
-            self.open_chrome_window()
-            driver = self.driver
 
-        untranslated_box_element = driver.find_element(By.XPATH, "//textarea[@aria-labelledby='translation-source-heading']")
-        if untranslated_box_element.get_attribute('value') == untranslated_text:
-            return
 
-        previous_translation = ""
-        translated_box_element = driver.find_element(By.XPATH, "//textarea[@aria-labelledby='translation-results-heading']")
-        if (translated_box_element.get_attribute('value') != ''):
-            previous_translation = translated_box_element.get_attribute('value')
 
-        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, "//textarea[@aria-labelledby='translation-source-heading']"))).clear()
-        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, "//textarea[@aria-labelledby='translation-source-heading']"))).send_keys(untranslated_text)
 
-        if self.string_not_blank(previous_translation):
-            while True:
-                if (translated_box_element.get_attribute('value') != previous_translation and not translated_box_element.get_attribute('value').__contains__("[...]")):
-                    sleep(1)
-                    if not translated_box_element.get_attribute('value').__contains__("[...]"):
-                        text_target = translated_box_element.get_attribute('value')
-                        break
 
-        else:
-            while True:
-                if (translated_box_element.get_attribute('value') != ''):
-                    sleep(1)
-                    if not translated_box_element.get_attribute('value').__contains__("[...]"):
-                        text_target = translated_box_element.get_attribute('value')
-                        break
-        self.handle_translated_text(text_target)
 
-    def handle_translated_text(self, translated_text):
-        self.text_box_translated.setText(translated_text)
+    # =============== Create image copy =============== #
+    def create_image_copy(self, image_path):
+        image = Image.open(image_path)
+        image_copy = image.copy()
+        image_copy_path = process_factory_folder_path + "\\temp_image.png"
+        image_copy.save(image_copy_path)
+        return image_copy_path
 
-    # =============== Check blank string =============== #
-    def string_not_blank(self, checkStr):
-        isNotBlankOrEmpty = True
-        if not checkStr:
-            isNotBlankOrEmpty = False
-        if checkStr == "":
-            isNotBlankOrEmpty = False
-        return isNotBlankOrEmpty
-
-    def is_browser_alive(self, driver):
-        try:
-            driver.current_url
-            # or driver.title
-            return True
-        except:
-            return False
-
-    def captch_ex(self, file_name):
+    # =============== Detect text boxes =============== #
+    def detect_text_boxes(self, file_name):
         img = cv2.imread(file_name)
 
         img_final = cv2.imread(file_name)
@@ -276,9 +222,19 @@ class window(QMainWindow):
 
         contours, hierarchy = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # findContours returns 3 variables for getting contours
 
+        # contour list
+        contour_list = defaultdict(list)
+        contour_list_idx_key = 0
+
         for contour in contours:
             # get rectangle bounding contour
             [x, y, w, h] = cv2.boundingRect(contour)
+            
+            contour_rect = [x, y, w, h]
+
+            for component in contour_rect:
+                contour_list[contour_list_idx_key].append(component)
+            contour_list_idx_key += 1
 
             # Don't plot small false positives that aren't text
             if w < 35 and h < 35:
@@ -296,12 +252,9 @@ class window(QMainWindow):
             index = index + 1
 
             '''
-        # write original image with added contours to disk
-        cv2.imshow('dilate', dilated)
-        cv2.imshow('captcha_result', img)
-        cv2.waitKey()
+        return contour_list
 
-    def locate_text(self, image_path):
+
         # Load image, grayscale, Gaussian blur, adaptive threshold
         image = cv2.imread(image_path)
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
@@ -330,124 +283,149 @@ class window(QMainWindow):
         cv2.imshow('dilate', dilate)
         cv2.imshow('image', image)
         cv2.waitKey()
-    # def try_online_git(self, in_file):
-    #     img = cv2.imread(infile)
-    #     gray = clean.grayscale(img)
 
-    #     # binary_threshold=arg.integer_value('binary_threshold',default_value=defaults.BINARY_THRESHOLD)
-    #     # if arg.boolean_value('verbose'):
-    #     #     print('Binarizing with threshold value of ' + str(binary_threshold))
-    #     # inv_binary = cv2.bitwise_not(clean.binarize(gray, threshold=binary_threshold))
-    #     # binary = clean.binarize(gray, threshold=binary_threshold)
+    # =============== Segment image =============== #
+    def crop_text_boxes_from_image(self, image_path, contour_list):
 
-    #     segmented_image = seg.segment_image(gray)
-    #     segmented_image = segmented_image[:,:,2]
-    #     components = cc.get_connected_components(segmented_image)
-    #     cc.draw_bounding_boxes(img,components,color=(255,0,0),line_size=2)
-
-    #     imsave(outfile, img)
-
+        import cv2
+        image = cv2.imread(image_path)
+        # clear segment image folder
+        folder = segmented_images_folder_path
+        for filename in os.listdir(folder):
+            file_path = os.path.join(folder, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                print('Failed to delete %s. Reason: %s' % (file_path, e))
         
-    #     cv2.imshow('segmented_image',segmented_image)
-    #     cv2.waitKey()
-    
-    # def segment_image(img, max_scale=4.0, min_scale=0.15):
-    #     (h,w)=img.shape[:2]
-
-    #     if arg.boolean_value('verbose'):
-    #         print('Segmenting ' + str(h) + 'x' + str(w) + ' image.')
-
-    #     #create gaussian filtered and unfiltered binary images
-    #     binary_threshold = arg.integer_value('binary_threshold',default_value=defaults.BINARY_THRESHOLD)
-    #     if arg.boolean_value('verbose'):
-    #         print('binarizing images with threshold value of ' + str(binary_threshold))
-    #     binary = clean.binarize(img,threshold=binary_threshold)
-
-    #     binary_average_size = cc.average_size(binary)
-    #     if arg.boolean_value('verbose'):
-    #         print('average cc size for binaryized grayscale image is ' + str(binary_average_size))
-    #     '''
-    #     The necessary sigma needed for Gaussian filtering (to remove screentones and other noise) seems
-    #     to be a function of the resolution the manga was scanned at (or original page size, I'm not sure).
-    #     Assuming 'normal' page size for a phonebook style Manga is 17.5cmx11.5cm (6.8x4.5in).
-    #     A scan of 300dpi will result in an image about 1900x1350, which requires a sigma of 1.5 to 1.8.
-    #     I'm encountering many smaller images that may be nonstandard scanning dpi values or just smaller
-    #     magazines. Haven't found hard info on this yet. They require sigma values of about 0.5 to 0.7.
-    #     I'll therefore (for now) just calculate required (nonspecified) sigma as a linear function of vertical
-    #     image resolution.
-    #     '''
-    #     sigma = (0.8/676.0)*float(h)-0.9
-    #     sigma = arg.float_value('sigma',default_value=sigma)
-    #     if arg.boolean_value('verbose'):
-    #         print('Applying Gaussian filter with sigma (std dev) of ' + str(sigma))
-    #     gaussian_filtered = scipy.ndimage.gaussian_filter(img, sigma=sigma)
-
-    #     gaussian_binary = clean.binarize(gaussian_filtered,threshold=binary_threshold)
-
-    #     #Draw out statistics on average connected component size in the rescaled, binary image
-    #     average_size = cc.average_size(gaussian_binary)
-    #     if arg.boolean_value('verbose'):
-    #         print('Binarized Gaussian filtered image average cc size: ' + str(average_size))
-    #     max_size = average_size*max_scale
-    #     min_size = average_size*min_scale
-
-    #     #primary mask is connected components filtered by size
-    #     mask = cc.form_mask(gaussian_binary, max_size, min_size)
-
-    #     #secondary mask is formed from canny edges
-    #     canny_mask = clean.form_canny_mask(gaussian_filtered, mask=mask)
-
-    #     #final mask is size filtered connected components on canny mask
-    #     final_mask = cc.form_mask(canny_mask, max_size, min_size)
-
-    #     #apply mask and return images
-    #     cleaned = cv2.bitwise_not(final_mask * binary)
-    #     text_only = cleaned2segmented(cleaned, average_size)
-
-    #     #if desired, suppress furigana characters (which interfere with OCR)
-    #     suppress_furigana = arg.boolean_value('furigana')
-    #     if suppress_furigana:
-    #         if arg.boolean_value('verbose'):
-    #         print('Attempting to suppress furigana characters which interfere with OCR.')
-    #         furigana_mask = furigana.estimate_furigana(cleaned, text_only)
-    #         furigana_mask = np.array(furigana_mask==0,'B')
-    #         cleaned = cv2.bitwise_not(cleaned)*furigana_mask
-    #         cleaned = cv2.bitwise_not(cleaned)
-    #         text_only = cleaned2segmented(cleaned, average_size)
-
-    #     (text_like_areas, nontext_like_areas) = filter_text_like_areas(img, segmentation=text_only, average_size=average_size)
-    #     if arg.boolean_value('verbose'):
-    #         print('**********there are ' + str(len(text_like_areas)) + ' text like areas total.')
-    #     text_only = np.zeros(img.shape)
-    #     cc.draw_bounding_boxes(text_only, text_like_areas,color=(255),line_size=-1)
-
-    #     if arg.boolean_value('debug'):
-    #         text_only = 0.5*text_only + 0.5*img
-    #         #text_rows = 0.5*text_rows+0.5*gray
-    #         #text_colums = 0.5*text_columns+0.5*gray
-
-    #     #text_only = filter_text_like_areas(img, segmentation=text_only, average_size=average_size)
-
-    #     segmented_image = np.zeros((h,w,3), np.uint8)
-    #     segmented_image[:,:,0] = img
-    #     segmented_image[:,:,1] = text_only
-    #     segmented_image[:,:,2] = text_only
-    #     return segmented_image
+        # Segment image
+        for contour_list_index, contour in contour_list.items():
+            x = contour[0]
+            y = contour[1]
+            w = contour[2]
+            h = contour[3]
+            crop_img = image[y:y+h, x:x+w]
+            segmented_image_folder_path = segmented_images_folder_path + "\\" + str(contour_list_index) + ".png"
+            cv2.imwrite(segmented_image_folder_path, crop_img)
+            contour_list[contour_list_index].append(crop_img)
+        
+        return contour_list
 
 
 
 
+    def process_text_boxe_iamgs(self, text_boxe_images):
+        translated_tex_box_images = defaultdict(list)
+        for text_box_index, text_box_contour, text_box_image in text_boxe_images.items():
+            text_box_text = self.scan_text_box_for_text(os.path.dirname(text_box_image))
+            translated_text = self.translate_text(text_box_text)
+            translated_text_box_image = cv2.
+            
+
+    # =============== Scan image for text =============== #
+    def scan_text_box_for_text(self, image_path):
+        img = Image.open(image_path)
+
+        mode_index = self.combo_box_mode.currentIndex()
+            
+        # Mode: Horizontal
+        if mode_index == horizontal_mode_index:
+            pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+            text = pytesseract.image_to_string(img, lang = pytesseract_jpn_lgn, config = tessdata_dir_config)
+        # Mode: Vertical
+        elif mode_index == vertical_mode_index:
+            text = pytesseract.image_to_string(img, lang = pytesseract_jpn_vert_lgn, config = tessdata_dir_config)
+        # Mode: MG
+        elif mode_index == mg_mode_index:
+            mocr = MangaOcr()
+            text = mocr(image_path)
+
+        if self.check_string_not_blank(text):
+            return text
+            # self.text_box_original.setText(text)
+            # self.translate_text(text)
+        else:
+            return
+
+    # =============== Translate text =============== #
+    def translate_text(self, untranslated_text):
+        if not self.check_string_not_blank(untranslated_text):
+            return
+
+        if self.is_browser_alive(self.driver):
+            driver = self.driver
+
+        else:
+            self.open_chrome_window()
+            driver = self.driver
+
+        untranslated_box_element = driver.find_element(By.XPATH, "//textarea[@aria-labelledby='translation-source-heading']")
+        if untranslated_box_element.get_attribute('value') == untranslated_text:
+            return
+
+        previous_translation = ""
+        translated_box_element = driver.find_element(By.XPATH, "//textarea[@aria-labelledby='translation-results-heading']")
+        if (translated_box_element.get_attribute('value') != ''):
+            previous_translation = translated_box_element.get_attribute('value')
+
+        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, "//textarea[@aria-labelledby='translation-source-heading']"))).clear()
+        WebDriverWait(driver, 20).until(EC.element_to_be_clickable((By.XPATH, "//textarea[@aria-labelledby='translation-source-heading']"))).send_keys(untranslated_text)
+
+        if self.check_string_not_blank(previous_translation):
+            while True:
+                if (translated_box_element.get_attribute('value') != previous_translation and not translated_box_element.get_attribute('value').__contains__("[...]")):
+                    sleep(1)
+                    if not translated_box_element.get_attribute('value').__contains__("[...]"):
+                        text_target = translated_box_element.get_attribute('value')
+                        break
+
+        else:
+            while True:
+                if (translated_box_element.get_attribute('value') != ''):
+                    sleep(1)
+                    if not translated_box_element.get_attribute('value').__contains__("[...]"):
+                        text_target = translated_box_element.get_attribute('value')
+                        break
+        # self.handle_translated_text(text_target)
+        return text_target
+
+    def handle_translated_text(self, translated_text):
+        self.text_box_translated.setText(translated_text)
+
+    # =============== Create translated text box image =============== #
+    def create_translated_text_box_with(self, text, text_box_dimensions):
+        # """Create new image(numpy array) filled with certain color in RGB"""
+        # Create black blank image
+        image = np.zeros((height, width, 3), np.uint8)
+
+        # Since OpenCV uses BGR, convert the color first
+        color = tuple(reversed(rgb_color))
+        # Fill image with color
+        image[:] = color
+
+        return image
 
 
+    # =============== Check blank string =============== #
+    def check_string_not_blank(self, checkStr):
+        isNotBlankOrEmpty = True
+        if not checkStr:
+            isNotBlankOrEmpty = False
+        if checkStr == "":
+            isNotBlankOrEmpty = False
+        return isNotBlankOrEmpty
 
-
-
-
-
-
-
-
-
+     # =============== Check if browser is open =============== #
+    def is_browser_alive(self, driver):
+        try:
+            driver.current_url
+            # or driver.title
+            return True
+        except:
+            return False
 
 
 class PhotoViewer(QtWidgets.QGraphicsView):

@@ -1,3 +1,4 @@
+from email.mime import image
 from time import sleep
 from collections import defaultdict
 import os, shutil
@@ -175,7 +176,9 @@ class window(QMainWindow):
 
         cropped_text_boxes = self.crop_text_boxes_from_image(image_copy_path, contour_list)
 
-        self.scan_text_box_for_text(image_path)
+        self.process_text_boxe_images(cropped_text_boxes, contour_list)
+
+        # self.scan_text_box_for_text(image_path)
 
         pixmap = QPixmap(image_copy_path)
         self.pre_translate_image_viewer.setPhoto(pixmap)
@@ -184,7 +187,7 @@ class window(QMainWindow):
 
 
 
-    
+
 
 
 
@@ -254,39 +257,9 @@ class window(QMainWindow):
             '''
         return contour_list
 
-
-        # Load image, grayscale, Gaussian blur, adaptive threshold
-        image = cv2.imread(image_path)
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        blur = cv2.GaussianBlur(gray, (9,9), 0)
-        thresh = cv2.adaptiveThreshold(blur,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV,11,30)
-
-        # Dilate to combine adjacent text contours
-        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (9,9))
-        dilate = cv2.dilate(thresh, kernel, iterations=4)
-
-        # Find contours, highlight text areas, and extract ROIs
-        cnts = cv2.findContours(dilate, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        cnts = cnts[0] if len(cnts) == 2 else cnts[1]
-
-        ROI_number = 0
-        for c in cnts:
-            area = cv2.contourArea(c)
-            if area > 10000:
-                x,y,w,h = cv2.boundingRect(c)
-                cv2.rectangle(image, (x, y), (x + w, y + h), (36,255,12), 3)
-                # ROI = image[y:y+h, x:x+w]
-                # cv2.imwrite('ROI_{}.png'.format(ROI_number), ROI)
-                # ROI_number += 1
-
-        cv2.imshow('thresh', thresh)
-        cv2.imshow('dilate', dilate)
-        cv2.imshow('image', image)
-        cv2.waitKey()
-
     # =============== Segment image =============== #
     def crop_text_boxes_from_image(self, image_path, contour_list):
-
+        cropped_images_list = []
         import cv2
         image = cv2.imread(image_path)
         # clear segment image folder
@@ -308,21 +281,25 @@ class window(QMainWindow):
             w = contour[2]
             h = contour[3]
             crop_img = image[y:y+h, x:x+w]
-            segmented_image_folder_path = segmented_images_folder_path + "\\" + str(contour_list_index) + ".png"
-            cv2.imwrite(segmented_image_folder_path, crop_img)
-            contour_list[contour_list_index].append(crop_img)
+            segmented_image_file_path = segmented_images_folder_path + "\\" + str(contour_list_index) + ".png"
+            cv2.imwrite(segmented_image_file_path, crop_img)
+            # contour_list[contour_list_index].append(crop_img)
+            # cropped_image = cv2.imread(segmented_image_file_path)
+            cropped_images_list.append(segmented_image_file_path)
         
-        return contour_list
+        return cropped_images_list
 
 
 
 
-    def process_text_boxe_iamgs(self, text_boxe_images):
-        translated_tex_box_images = defaultdict(list)
-        for text_box_index, text_box_contour, text_box_image in text_boxe_images.items():
-            text_box_text = self.scan_text_box_for_text(os.path.dirname(text_box_image))
+    def process_text_boxe_images(self, text_box_images, text_box_contour_dict):
+        # translated_tex_box_images_dict = defaultdict(image)
+        for image_index, text_box_image in enumerate(text_box_images):
+            text_box_text = self.scan_text_box_for_text(text_box_image)
             translated_text = self.translate_text(text_box_text)
-            translated_text_box_image = cv2.
+            translated_text_box_image = self.create_translated_text_box_with(translated_text, text_box_contour_dict[image_index])
+        #     translated_tex_box_images_dict[text_box_index].append(translated_text_box_image)
+        # self.overwrite_originated_text_boxes_with(translated_tex_box_images_dict, text_box_images)
             
 
     # =============== Scan image for text =============== #
@@ -399,15 +376,37 @@ class window(QMainWindow):
     def create_translated_text_box_with(self, text, text_box_dimensions):
         # """Create new image(numpy array) filled with certain color in RGB"""
         # Create black blank image
-        image = np.zeros((height, width, 3), np.uint8)
+        [x, y, w, h] = text_box_dimensions
 
-        # Since OpenCV uses BGR, convert the color first
-        color = tuple(reversed(rgb_color))
-        # Fill image with color
-        image[:] = color
+        # Create a black image
+        img = np.zeros((w, h, 3), np.uint8)
+
+        # Write some Text
+
+        font                   = cv2.FONT_HERSHEY_SIMPLEX
+        bottomLeftCornerOfText = (10,500)
+        fontScale              = 1
+        fontColor              = (255,255,255)
+        thickness              = 1
+        lineType               = 2
+
+        cv2.putText(img, text, 
+            bottomLeftCornerOfText, 
+            font, 
+            fontScale,
+            fontColor,
+            thickness,
+            lineType)
+
+        #Display the image
+        cv2.imshow("img",img)
+        cv2.waitKey(0)
 
         return image
 
+    def overwrite_originated_text_boxes_with(self, translated_text_boxes, text_box_dimensions):
+        
+        return
 
     # =============== Check blank string =============== #
     def check_string_not_blank(self, checkStr):

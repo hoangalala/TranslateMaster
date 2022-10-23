@@ -1,8 +1,11 @@
+from distutils.log import error
 from email.mime import image
 from time import sleep
 from collections import defaultdict
 import os, shutil
+from warnings import catch_warnings
 import numpy as np
+import textwrap
 
 from PyQt6 import QtWidgets
 from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog
@@ -79,7 +82,7 @@ retranslate_btn_loc_Y = combo_box_mode_loc_Y + combo_box_mode_height + vertical_
 
 
 
-tessdata_dir_config = '--tessdata-dir "C:\\Program Files\\Tesseract-OCR\\tessdata"'
+tessdata_dir_config = '--tessdata-dir "C:\\Program Files (x86)\\Tesseract-OCR\\tessdata"'  #C:\\Program Files\\Tesseract-OCR\\tessdata
 pytesseract_jpn_lgn = "jpn"
 pytesseract_jpn_vert_lgn = "jpn_vert"
 translate_destination_en = "EN-US"
@@ -164,7 +167,11 @@ class window(QMainWindow):
         )
         image_path = image_path[0]
         if self.check_string_not_blank(image_path):
-            self.process_image(image_path)
+            try:
+                self.process_image(image_path)
+            except BaseException as e:
+                print(str(e))
+                return
         else:
             print("BlankOrEmpty")
 
@@ -297,7 +304,7 @@ class window(QMainWindow):
         for image_index, text_box_image in enumerate(text_box_images):
             text_box_text = self.scan_text_box_for_text(text_box_image)
             translated_text = self.translate_text(text_box_text)
-            translated_text_box_image = self.create_translated_text_box_with(translated_text, text_box_contour_dict[image_index])
+            translated_text_box_image = self.create_translated_text_box_with(translated_text, text_box_contour_dict[image_index], text_box_image)
         #     translated_tex_box_images_dict[text_box_index].append(translated_text_box_image)
         # self.overwrite_originated_text_boxes_with(translated_tex_box_images_dict, text_box_images)
             
@@ -310,10 +317,11 @@ class window(QMainWindow):
             
         # Mode: Horizontal
         if mode_index == horizontal_mode_index:
-            pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
+            pytesseract.tesseract_cmd = r'"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"'  #C:\Program Files\Tesseract-OCR\tesseract.exe
             text = pytesseract.image_to_string(img, lang = pytesseract_jpn_lgn, config = tessdata_dir_config)
         # Mode: Vertical
         elif mode_index == vertical_mode_index:
+            pytesseract.tesseract_cmd = r'"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"'  #C:\Program Files\Tesseract-OCR\tesseract.exe
             text = pytesseract.image_to_string(img, lang = pytesseract_jpn_vert_lgn, config = tessdata_dir_config)
         # Mode: MG
         elif mode_index == mg_mode_index:
@@ -339,9 +347,9 @@ class window(QMainWindow):
             self.open_chrome_window()
             driver = self.driver
 
-        untranslated_box_element = driver.find_element(By.XPATH, "//textarea[@aria-labelledby='translation-source-heading']")
-        if untranslated_box_element.get_attribute('value') == untranslated_text:
-            return
+        # untranslated_box_element = driver.find_element(By.XPATH, "//textarea[@aria-labelledby='translation-source-heading']")
+        # if untranslated_box_element.get_attribute('value') == untranslated_text:
+        #     return
 
         previous_translation = ""
         translated_box_element = driver.find_element(By.XPATH, "//textarea[@aria-labelledby='translation-results-heading']")
@@ -373,36 +381,65 @@ class window(QMainWindow):
         self.text_box_translated.setText(translated_text)
 
     # =============== Create translated text box image =============== #
-    def create_translated_text_box_with(self, text, text_box_dimensions):
-        # """Create new image(numpy array) filled with certain color in RGB"""
-        # Create black blank image
-        [x, y, w, h] = text_box_dimensions
+    def create_translated_text_box_with(self, text, text_box_dimensions, text_box_image):
+        # # """Create new image(numpy array) filled with certain color in RGB"""
+        # # Create black blank image
+        # [x, y, w, h] = text_box_dimensions
 
-        # Create a black image
-        img = np.zeros((w, h, 3), np.uint8)
+        # # Create a black image
+        # img = np.zeros((h, w, 3), np.uint8)
+        # img.fill(255)
 
-        # Write some Text
+        # # Write some Text
+        # font                   = cv2.FONT_HERSHEY_SIMPLEX
+        # bottom_left_corner_of_text = (10,15)
+        # font_size              = 1
+        # font_color              = (0, 0, 0)
+        # font_thickness              = 1
+        # line_type               = 2
 
-        font                   = cv2.FONT_HERSHEY_SIMPLEX
-        bottomLeftCornerOfText = (10,500)
-        fontScale              = 1
-        fontColor              = (255,255,255)
-        thickness              = 1
-        lineType               = 2
+        # cv2.putText(img, text, 
+        #     bottom_left_corner_of_text, 
+        #     font, 
+        #     font_size,
+        #     font_color,
+        #     font_thickness,
+        #     line_type)
 
-        cv2.putText(img, text, 
-            bottomLeftCornerOfText, 
-            font, 
-            fontScale,
-            fontColor,
-            thickness,
-            lineType)
+
+        img = cv2.imread(text_box_image)
+        print(img.shape)
+
+        height, width, channel = img.shape
+
+        text_img = np.ones((height, width))
+        print(text_img.shape)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+
+        # text = "lorem ipsum"
+        wrapped_text = textwrap.wrap(text, width=35)
+        x, y = 10, 40
+        font_size = 1
+        font_thickness = 2
+
+        for i, line in enumerate(wrapped_text):
+            textsize = cv2.getTextSize(line, font, font_size, font_thickness)[0]
+
+            gap = textsize[1] + 10
+
+            y = int((img.shape[0] + textsize[1]) / 2) + i * gap
+            x = int((img.shape[1] - textsize[0]) / 2)
+
+            cv2.putText(img, line, (x, y), font,
+                        font_size, 
+                        (0,0,0), 
+                        font_thickness, 
+                        lineType = cv2.LINE_AA)
 
         #Display the image
         cv2.imshow("img",img)
         cv2.waitKey(0)
-
-        return image
+        return img
 
     def overwrite_originated_text_boxes_with(self, translated_text_boxes, text_box_dimensions):
         

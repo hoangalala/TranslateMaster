@@ -82,7 +82,7 @@ retranslate_btn_loc_Y = combo_box_mode_loc_Y + combo_box_mode_height + vertical_
 
 
 
-tessdata_dir_config = '--tessdata-dir "C:\\Program Files (x86)\\Tesseract-OCR\\tessdata"'  #C:\\Program Files\\Tesseract-OCR\\tessdata
+tessdata_dir_config = '--tessdata-dir "C:\\Program Files\\Tesseract-OCR\\tessdata"'  #C:\\Program Files\\Tesseract-OCR\\tessdata
 pytesseract_jpn_lgn = "jpn"
 pytesseract_jpn_vert_lgn = "jpn_vert"
 translate_destination_en = "EN-US"
@@ -91,6 +91,7 @@ cwd = os.getcwd()
 google_executable_path = cwd + "\\chromedriver_win32\\chromedriver.exe"
 process_factory_folder_path = cwd + "\\process_factory"
 segmented_images_folder_path = process_factory_folder_path + "\\segmented_images"
+processed_images_folder_path = process_factory_folder_path + "\\processed_images"
 
 
 # # Experimental
@@ -227,7 +228,7 @@ class window(QMainWindow):
  
         kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (3,
                                                             3))  # ORIGINAL 3,3 to manipulate the orientation of dilution , large x means horizonatally dilating  more, large y means vertically dilating more
-        dilated = cv2.dilate(new_img, kernel, iterations=5)  # dilate , more the iteration more the dilation
+        dilated = cv2.dilate(new_img, kernel, iterations=9)  # dilate , more the iteration more the dilation
         # dilated = cv2.dilate(new_img, kernel, iterations=9)  # dilate , more the iteration more the dilation
 
         contours, hierarchy = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # findContours returns 3 variables for getting contours
@@ -314,14 +315,15 @@ class window(QMainWindow):
         img = Image.open(image_path)
 
         mode_index = self.combo_box_mode.currentIndex()
-            
+        pytesseract.tesseract_cmd = "C:\\Program Files\\Tesseract-OCR\\tesseract.exe"  #C:\Program Files\Tesseract-OCR\tesseract.exe
+
         # Mode: Horizontal
         if mode_index == horizontal_mode_index:
-            pytesseract.tesseract_cmd = r'"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"'  #C:\Program Files\Tesseract-OCR\tesseract.exe
+            # pytesseract.tesseract_cmd = r'"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"'  #C:\Program Files\Tesseract-OCR\tesseract.exe
             text = pytesseract.image_to_string(img, lang = pytesseract_jpn_lgn, config = tessdata_dir_config)
         # Mode: Vertical
         elif mode_index == vertical_mode_index:
-            pytesseract.tesseract_cmd = r'"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"'  #C:\Program Files\Tesseract-OCR\tesseract.exe
+            # pytesseract.tesseract_cmd = r'"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"'  #C:\Program Files\Tesseract-OCR\tesseract.exe
             text = pytesseract.image_to_string(img, lang = pytesseract_jpn_vert_lgn, config = tessdata_dir_config)
         # Mode: MG
         elif mode_index == mg_mode_index:
@@ -382,6 +384,44 @@ class window(QMainWindow):
 
     # =============== Create translated text box image =============== #
     def create_translated_text_box_with(self, text, text_box_dimensions, text_box_image):
+        # """Create new image(numpy array) filled with certain color in RGB"""
+        # Create black blank image
+        [x, y, w, h] = text_box_dimensions
+
+        # Create a black image
+        img = np.zeros((h, w, 3), np.uint8)
+        img.fill(255)
+        # img = cv2.imread(text_box_image)
+        print(img.shape)
+
+        height, width, channel = img.shape
+
+        text_img = np.ones((height, width))
+        print(text_img.shape)
+        print(text)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+
+        # text = "lorem ipsum"
+        wrapped_text = textwrap.wrap(text, width=50)
+        x, y = 10, 40
+        font_size = 1
+        font_thickness = 2
+
+        for i, line in enumerate(wrapped_text):
+            textsize = cv2.getTextSize(line, font, font_size, font_thickness)[0]
+
+            gap = textsize[1] + 10
+
+            y = int((img.shape[0] + textsize[1]) / 2) + i * gap
+            x = int((img.shape[1] - textsize[0]) / 2)
+            print(line)
+            cv2.putText(img, line, (x, y), font,
+                        font_size, 
+                        (0,0,0), 
+                        font_thickness, 
+                        lineType = cv2.LINE_AA)
+            processed_image_path = processed_images_folder_path + "\\" + str(i) + ".png"
+            cv2.imwrite(processed_image_path, img)
         # # """Create new image(numpy array) filled with certain color in RGB"""
         # # Create black blank image
         # [x, y, w, h] = text_box_dimensions
@@ -405,39 +445,8 @@ class window(QMainWindow):
         #     font_color,
         #     font_thickness,
         #     line_type)
-
-
-        img = cv2.imread(text_box_image)
-        print(img.shape)
-
-        height, width, channel = img.shape
-
-        text_img = np.ones((height, width))
-        print(text_img.shape)
-        font = cv2.FONT_HERSHEY_SIMPLEX
-
-        # text = "lorem ipsum"
-        wrapped_text = textwrap.wrap(text, width=35)
-        x, y = 10, 40
-        font_size = 1
-        font_thickness = 2
-
-        for i, line in enumerate(wrapped_text):
-            textsize = cv2.getTextSize(line, font, font_size, font_thickness)[0]
-
-            gap = textsize[1] + 10
-
-            y = int((img.shape[0] + textsize[1]) / 2) + i * gap
-            x = int((img.shape[1] - textsize[0]) / 2)
-
-            cv2.putText(img, line, (x, y), font,
-                        font_size, 
-                        (0,0,0), 
-                        font_thickness, 
-                        lineType = cv2.LINE_AA)
-
         #Display the image
-        cv2.imshow("img",img)
+        # cv2.imshow("img",img)
         cv2.waitKey(0)
         return img
 

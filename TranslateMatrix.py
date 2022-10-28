@@ -1,9 +1,9 @@
 from distutils.log import error
 from email.mime import image
 from time import sleep
+import time
 from collections import defaultdict
 import os, shutil
-from warnings import catch_warnings
 import numpy as np
 import textwrap
 
@@ -13,6 +13,11 @@ from PyQt6.QtGui import QPixmap
 from PyQt6 import QtCore, QtGui
 
 from PIL import Image
+
+from wand import image
+from wand import drawing
+from wand.font import Font
+
 from pytesseract import pytesseract
 from manga_ocr import MangaOcr
 
@@ -92,6 +97,9 @@ google_executable_path = cwd + "\\chromedriver_win32\\chromedriver.exe"
 process_factory_folder_path = cwd + "\\process_factory"
 segmented_images_folder_path = process_factory_folder_path + "\\segmented_images"
 processed_images_folder_path = process_factory_folder_path + "\\processed_images"
+
+duplicated_pic_path = process_factory_folder_path + "\\temp.png"
+translated_pic_path = process_factory_folder_path + "\\temp_translated.png"
 
 
 # # Experimental
@@ -178,18 +186,20 @@ class window(QMainWindow):
 
     # =============== Process Image =============== #
     def process_image(self, image_path):
-        image_copy_path = self.create_image_copy(image_path)
+        self.create_image_copy(image_path)
 
-        contour_list = self.detect_text_boxes(image_copy_path)
+        pixmap = QPixmap(duplicated_pic_path)
+        self.pre_translate_image_viewer.setPhoto(pixmap)
 
-        cropped_text_boxes = self.crop_text_boxes_from_image(image_copy_path, contour_list)
+        contour_list = self.detect_text_boxes()
 
-        self.process_text_boxe_images(cropped_text_boxes, contour_list)
+        cropped_text_boxes = self.crop_text_boxes_from_image(contour_list)
+
+        self.process_text_box_images(cropped_text_boxes, contour_list)
 
         # self.scan_text_box_for_text(image_path)
 
-        pixmap = QPixmap(image_copy_path)
-        self.pre_translate_image_viewer.setPhoto(pixmap)
+        
 
 
 
@@ -208,28 +218,31 @@ class window(QMainWindow):
     def create_image_copy(self, image_path):
         image = Image.open(image_path)
         image_copy = image.copy()
-        image_copy_path = process_factory_folder_path + "\\temp_image.png"
-        image_copy.save(image_copy_path)
-        return image_copy_path
+
+        image_copy.save(duplicated_pic_path)
+        image_copy.save(translated_pic_path)
 
     # =============== Detect text boxes =============== #
-    def detect_text_boxes(self, file_name):
-        img = cv2.imread(file_name)
+    def detect_text_boxes(self):
+        img = cv2.imread(duplicated_pic_path)
 
-        img_final = cv2.imread(file_name)
+        img_final = cv2.imread(duplicated_pic_path)
         img2gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         ret, mask = cv2.threshold(img2gray, 180, 255, cv2.THRESH_BINARY)
         image_final = cv2.bitwise_and(img2gray, img2gray, mask=mask)
-        ret, new_img = cv2.threshold(image_final, 180, 255, cv2.THRESH_BINARY_INV)  # for black text , cv.THRESH_BINARY_INV
-                                                                                # for white text , cv.THRESH_BINARY
+        ret, new_img = cv2.threshold(image_final, 180, 255, cv2.THRESH_BINARY_INV)  # for black text , cv2.THRESH_BINARY_INV
+                                                                                # for white text , cv2.THRESH_BINARY
         '''
                 line  8 to 12  : Remove noisy portion 
         '''
  
         kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (3,
                                                             3))  # ORIGINAL 3,3 to manipulate the orientation of dilution , large x means horizonatally dilating  more, large y means vertically dilating more
-        dilated = cv2.dilate(new_img, kernel, iterations=9)  # dilate , more the iteration more the dilation
+        dilated = cv2.dilate(new_img, kernel, iterations = 7)  # dilate , more the iteration more the dilation
         # dilated = cv2.dilate(new_img, kernel, iterations=9)  # dilate , more the iteration more the dilation
+
+        cv2.imshow("dilated", dilated)
+        cv2.waitKey(0)
 
         contours, hierarchy = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # findContours returns 3 variables for getting contours
 
@@ -266,10 +279,10 @@ class window(QMainWindow):
         return contour_list
 
     # =============== Segment image =============== #
-    def crop_text_boxes_from_image(self, image_path, contour_list):
+    def crop_text_boxes_from_image(self, contour_list):
         cropped_images_list = []
         import cv2
-        image = cv2.imread(image_path)
+        image = cv2.imread(duplicated_pic_path)
         # clear segment image folder
         folder = segmented_images_folder_path
         for filename in os.listdir(folder):
@@ -300,7 +313,7 @@ class window(QMainWindow):
 
 
 
-    def process_text_boxe_images(self, text_box_images, text_box_contour_dict):
+    def process_text_box_images(self, text_box_images, text_box_contour_dict):
         # translated_tex_box_images_dict = defaultdict(image)
         for image_index, text_box_image in enumerate(text_box_images):
             text_box_text = self.scan_text_box_for_text(text_box_image)
@@ -331,6 +344,7 @@ class window(QMainWindow):
             text = mocr(image_path)
 
         if self.check_string_not_blank(text):
+            text = str.replace(text, "\n", "")
             return text
             # self.text_box_original.setText(text)
             # self.translate_text(text)
@@ -364,7 +378,7 @@ class window(QMainWindow):
         if self.check_string_not_blank(previous_translation):
             while True:
                 if (translated_box_element.get_attribute('value') != previous_translation and not translated_box_element.get_attribute('value').__contains__("[...]")):
-                    sleep(1)
+                    sleep(2)
                     if not translated_box_element.get_attribute('value').__contains__("[...]"):
                         text_target = translated_box_element.get_attribute('value')
                         break
@@ -376,7 +390,6 @@ class window(QMainWindow):
                     if not translated_box_element.get_attribute('value').__contains__("[...]"):
                         text_target = translated_box_element.get_attribute('value')
                         break
-        # self.handle_translated_text(text_target)
         return text_target
 
     def handle_translated_text(self, translated_text):
@@ -384,75 +397,44 @@ class window(QMainWindow):
 
     # =============== Create translated text box image =============== #
     def create_translated_text_box_with(self, text, text_box_dimensions, text_box_image):
-        # """Create new image(numpy array) filled with certain color in RGB"""
-        # Create black blank image
+        if not text:
+            return
         [x, y, w, h] = text_box_dimensions
 
-        # Create a black image
-        img = np.zeros((h, w, 3), np.uint8)
-        img.fill(255)
-        # img = cv2.imread(text_box_image)
-        print(img.shape)
+        start = time.time()
+        with image.Image(width=w, height=h, pseudo='xc:white') as canvas:
+            padding = 2
+            left = padding
+            top = padding
+            width = w - padding
+            height = h - padding
+            with drawing.Drawing() as context:
+                context.fill_color = 'white'
+                context.rectangle(left=left, top=top, width=width, height=height)
+                font = Font('/System/Library/Fonts/MarkerFelt.ttc')
+                context(canvas)
+                canvas.caption(text, left=left, top=top, width=width, height=height, font=font, gravity='center')
+            processed_image_path = processed_images_folder_path + "\\" + "0" + ".png"
 
-        height, width, channel = img.shape
+            canvas.save(filename = processed_image_path)
 
-        text_img = np.ones((height, width))
-        print(text_img.shape)
+            self.paste_on_large_image_with_image(processed_image_path, duplicated_pic_path, x, y)
+
+            pixmap = QPixmap(translated_pic_path)
+            self.post_translate_image_viewer.setPhoto(pixmap)
+        end = time.time()
         print(text)
-        font = cv2.FONT_HERSHEY_SIMPLEX
+        print("Elapsed Time: " + str(end - start))
 
-        # text = "lorem ipsum"
-        wrapped_text = textwrap.wrap(text, width=50)
-        x, y = 10, 40
-        font_size = 1
-        font_thickness = 2
+    def paste_on_large_image_with_image(self, small_image_path, large_image_path, x_offset, y_offset):
+        s_img = cv2.imread(small_image_path)
+        l_img = cv2.imread(translated_pic_path)
+        try:
+            l_img[y_offset:y_offset+s_img.shape[0], x_offset:x_offset+s_img.shape[1]] = s_img
 
-        for i, line in enumerate(wrapped_text):
-            textsize = cv2.getTextSize(line, font, font_size, font_thickness)[0]
-
-            gap = textsize[1] + 10
-
-            y = int((img.shape[0] + textsize[1]) / 2) + i * gap
-            x = int((img.shape[1] - textsize[0]) / 2)
-            print(line)
-            cv2.putText(img, line, (x, y), font,
-                        font_size, 
-                        (0,0,0), 
-                        font_thickness, 
-                        lineType = cv2.LINE_AA)
-            processed_image_path = processed_images_folder_path + "\\" + str(i) + ".png"
-            cv2.imwrite(processed_image_path, img)
-        # # """Create new image(numpy array) filled with certain color in RGB"""
-        # # Create black blank image
-        # [x, y, w, h] = text_box_dimensions
-
-        # # Create a black image
-        # img = np.zeros((h, w, 3), np.uint8)
-        # img.fill(255)
-
-        # # Write some Text
-        # font                   = cv2.FONT_HERSHEY_SIMPLEX
-        # bottom_left_corner_of_text = (10,15)
-        # font_size              = 1
-        # font_color              = (0, 0, 0)
-        # font_thickness              = 1
-        # line_type               = 2
-
-        # cv2.putText(img, text, 
-        #     bottom_left_corner_of_text, 
-        #     font, 
-        #     font_size,
-        #     font_color,
-        #     font_thickness,
-        #     line_type)
-        #Display the image
-        # cv2.imshow("img",img)
-        cv2.waitKey(0)
-        return img
-
-    def overwrite_originated_text_boxes_with(self, translated_text_boxes, text_box_dimensions):
-        
-        return
+            cv2.imwrite(translated_pic_path, l_img)
+        except:
+            print("FAILED")
 
     # =============== Check blank string =============== #
     def check_string_not_blank(self, checkStr):

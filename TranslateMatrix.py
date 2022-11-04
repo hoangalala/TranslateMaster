@@ -8,7 +8,7 @@ import numpy as np
 import textwrap
 
 from PyQt6 import QtWidgets
-from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog
+from PyQt6.QtWidgets import QApplication, QMainWindow, QPushButton, QFileDialog, QInputDialog
 from PyQt6.QtGui import QPixmap
 from PyQt6 import QtCore, QtGui
 
@@ -29,9 +29,11 @@ from selenium.webdriver.support import expected_conditions as EC
 
 import cv2
 
-
 # Only needed for access to command line arguments
 import sys
+
+# imuils
+from imutils.object_detection import non_max_suppression
 
 
 button_width = 100
@@ -84,6 +86,24 @@ mg_mode_index = 2
 retranslate_btn_txt = "Retranslate"
 retranslate_btn_loc_X = select_file_btn_loc_X
 retranslate_btn_loc_Y = combo_box_mode_loc_Y + combo_box_mode_height + vertical_distance_to_prev
+
+combo_box_iteration_width = button_width
+combo_box_iteration_height = button_height
+combo_box_iteration_loc_X = retranslate_btn_loc_X
+combo_box_iteration_loc_Y = retranslate_btn_loc_Y + button_height + vertical_distance_to_prev
+
+iteration_list = ("1", "2", "3", "4", "5", "6", "7", "8", "9")
+
+combo_box_run_option_width = button_width
+combo_box_run_option_height = button_height
+combo_box_run_option_loc_X = retranslate_btn_loc_X
+combo_box_run_option_loc_Y = combo_box_iteration_loc_Y + button_height + vertical_distance_to_prev
+
+run_option_list = ("Finish", "Stop test")
+
+check_box_show_image_loc_X = select_file_btn_loc_X
+check_box_show_image_loc_Y = combo_box_run_option_loc_Y + button_height + vertical_distance_to_prev
+check_box_show_image_text = "Show Image"
 
 
 
@@ -167,6 +187,22 @@ class window(QMainWindow):
         self.post_translate_image_viewer = PhotoViewer(self)
         self.post_translate_image_viewer.setGeometry(post_translate_image_viewer_loc_X, post_translate_image_viewer_loc_Y, post_translate_image_viewer_width, post_translate_image_viewer_height)
 
+        # =============== Iteration Combo Box =============== #
+        self.iteration_combo_box = QtWidgets.QComboBox(self)
+        self.iteration_combo_box.addItems(iteration_list)
+        self.iteration_combo_box.setGeometry(combo_box_iteration_loc_X, combo_box_iteration_loc_Y, combo_box_iteration_width, combo_box_iteration_height)
+        self.iteration_combo_box.setCurrentIndex(4)
+
+        # =============== Run Option Combo Box =============== #
+        self.run_option_combo_box = QtWidgets.QComboBox(self)
+        self.run_option_combo_box.addItems(run_option_list)
+        self.run_option_combo_box.setGeometry(combo_box_run_option_loc_X, combo_box_run_option_loc_Y, combo_box_run_option_width, combo_box_run_option_height)
+
+        # =============== Show Image Check Box =============== #
+        self.show_image_check_box = QtWidgets.QCheckBox(self)
+        self.show_image_check_box.move(check_box_show_image_loc_X, check_box_show_image_loc_Y)
+        self.show_image_check_box.setText(check_box_show_image_text)
+
     def open_dialog(self):
         image_path = QFileDialog.getOpenFileName(
             self,
@@ -224,35 +260,68 @@ class window(QMainWindow):
 
     # =============== Detect text boxes =============== #
     def detect_text_boxes(self):
+        iteration = self.iteration_combo_box.currentIndex()
         img = cv2.imread(duplicated_pic_path)
 
-        img_final = cv2.imread(duplicated_pic_path)
+        test = self.run_option_combo_box.currentIndex()
+        continue_process = (self.run_option_combo_box.currentIndex() == 0)
+
+        # Convert to grayscale
         img2gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # Apply threshold
         ret, mask = cv2.threshold(img2gray, 180, 255, cv2.THRESH_BINARY)
+
+        # Apply bitwise
         image_final = cv2.bitwise_and(img2gray, img2gray, mask=mask)
         ret, new_img = cv2.threshold(image_final, 180, 255, cv2.THRESH_BINARY_INV)  # for black text , cv2.THRESH_BINARY_INV
                                                                                 # for white text , cv2.THRESH_BINARY
+        # ret, new_img = cv2.threshold(img2gray, 180, 255, cv2.THRESH_BINARY_INV)  # for black text , cv2.THRESH_BINARY_INV
+        # #                                                                         # for white text , cv2.THRESH_BINARY
         '''
-                line  8 to 12  : Remove noisy portion 
+                line  8 to 12  : Remove noisy portion
         '''
  
         kernel = cv2.getStructuringElement(cv2.MORPH_CROSS, (3,
                                                             3))  # ORIGINAL 3,3 to manipulate the orientation of dilution , large x means horizonatally dilating  more, large y means vertically dilating more
-        dilated = cv2.dilate(new_img, kernel, iterations = 7)  # dilate , more the iteration more the dilation
+        dilated = cv2.dilate(new_img, kernel, iterations = iteration)  # dilate , more the iteration more the dilation
         # dilated = cv2.dilate(new_img, kernel, iterations=9)  # dilate , more the iteration more the dilation
 
-        cv2.imshow("dilated", dilated)
-        cv2.waitKey(0)
+        if self.show_image_check_box.isChecked():
+            # cv2.imshow("mask", mask)
+            # cv2.imshow("img2gray", img2gray)
+            cv2.imshow("new_img", new_img)
+            cv2.imshow("final", dilated)
+            # cv2.waitKey(0)
+
+        if not continue_process:
+            return
 
         contours, hierarchy = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # findContours returns 3 variables for getting contours
+
+        self.filter_rectangular_contours(contours, img)
 
         # contour list
         contour_list = defaultdict(list)
         contour_list_idx_key = 0
 
-        for contour in contours:
+        hierarchy = hierarchy[0]
+        for component in zip(contours, hierarchy):
+            current_contour = component[0]
+            current_hierarchy = component[1]
+
+            # parent_hierachy = current_hierarchy[2]
+            # if parent_hierachy > 0:
+            #     continue
+
             # get rectangle bounding contour
-            [x, y, w, h] = cv2.boundingRect(contour)
+            
+            # 
+            if self.is_as_big_as_img(current_contour, img):
+                print("RID THIS CONTOUR" + str(current_contour), str(img.shape))
+                continue
+
+            [x, y, w, h] = cv2.boundingRect(current_contour)
             
             contour_rect = [x, y, w, h]
 
@@ -276,7 +345,65 @@ class window(QMainWindow):
             index = index + 1
 
             '''
+        cv2.imshow("img", img)
         return contour_list
+
+    def filter_rectangular_contours(self, contour_list, img):
+        i = 0
+
+        # list for storing names of shapes
+        for contour in contour_list:
+        
+            # here we are ignoring first counter because 
+            # findcontour function detects whole image as shape
+            if i == 0:
+                i = 1
+                continue
+        
+            # cv2.approxPloyDP() function to approximate the shape
+            approx = cv2.approxPolyDP(
+                contour, 0.01 * cv2.arcLength(contour, True), True)
+            
+            # using drawContours() function
+            cv2.drawContours(img, [contour], 0, (0, 0, 255), 5)
+        
+            # finding center point of shape
+            M = cv2.moments(contour)
+            if M['m00'] != 0.0:
+                x = int(M['m10']/M['m00'])
+                y = int(M['m01']/M['m00'])
+        
+            # putting shape name at center of each shape
+            if len(approx) == 3:
+                cv2.putText(img, 'Triangle', (x, y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        
+            elif len(approx) == 4:
+                cv2.putText(img, 'Quadrilateral', (x, y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        
+            elif len(approx) == 5:
+                cv2.putText(img, 'Pentagon', (x, y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        
+            elif len(approx) == 6:
+                cv2.putText(img, 'Hexagon', (x, y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+        
+            else:
+                cv2.putText(img, 'circle', (x, y),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            # return False
+
+    def is_as_big_as_img(self, contour, img):
+        [x, y, w, h] = cv2.boundingRect(contour)
+        # with_test = img.shape[1]
+        # height_test = img.shape[0]
+        if abs(w - img.shape[1]) < 20:
+            if abs(h - img.shape[0]) < 20:
+                return True
+        return False
+
 
     # =============== Segment image =============== #
     def crop_text_boxes_from_image(self, contour_list):
@@ -284,16 +411,18 @@ class window(QMainWindow):
         import cv2
         image = cv2.imread(duplicated_pic_path)
         # clear segment image folder
-        folder = segmented_images_folder_path
-        for filename in os.listdir(folder):
-            file_path = os.path.join(folder, filename)
-            try:
-                if os.path.isfile(file_path) or os.path.islink(file_path):
-                    os.unlink(file_path)
-                elif os.path.isdir(file_path):
-                    shutil.rmtree(file_path)
-            except Exception as e:
-                print('Failed to delete %s. Reason: %s' % (file_path, e))
+        # folder = segmented_images_folder_path
+        # for filename in os.listdir(folder):
+        #     file_path = os.path.join(folder, filename)
+        #     try:
+        #         if os.path.isfile(file_path) or os.path.islink(file_path):
+        #             os.unlink(file_path)
+        #         elif os.path.isdir(file_path):
+        #             shutil.rmtree(file_path)
+        #     except Exception as e:
+        #         print('Failed to delete %s. Reason: %s' % (file_path, e))
+        self.clear_folder_contents(segmented_images_folder_path)
+        self.clear_folder_contents(processed_images_folder_path)
         
         # Segment image
         for contour_list_index, contour in contour_list.items():
@@ -317,8 +446,10 @@ class window(QMainWindow):
         # translated_tex_box_images_dict = defaultdict(image)
         for image_index, text_box_image in enumerate(text_box_images):
             text_box_text = self.scan_text_box_for_text(text_box_image)
+            if not self.check_string_not_blank(text_box_text):
+                continue
             translated_text = self.translate_text(text_box_text)
-            translated_text_box_image = self.create_translated_text_box_with(translated_text, text_box_contour_dict[image_index], text_box_image)
+            translated_text_box_image = self.create_translated_text_box_with(translated_text, text_box_contour_dict[image_index], image_index)
         #     translated_tex_box_images_dict[text_box_index].append(translated_text_box_image)
         # self.overwrite_originated_text_boxes_with(translated_tex_box_images_dict, text_box_images)
             
@@ -396,7 +527,7 @@ class window(QMainWindow):
         self.text_box_translated.setText(translated_text)
 
     # =============== Create translated text box image =============== #
-    def create_translated_text_box_with(self, text, text_box_dimensions, text_box_image):
+    def create_translated_text_box_with(self, text, text_box_dimensions, image_idex):
         if not text:
             return
         [x, y, w, h] = text_box_dimensions
@@ -414,7 +545,7 @@ class window(QMainWindow):
                 font = Font('/System/Library/Fonts/MarkerFelt.ttc')
                 context(canvas)
                 canvas.caption(text, left=left, top=top, width=width, height=height, font=font, gravity='center')
-            processed_image_path = processed_images_folder_path + "\\" + "0" + ".png"
+            processed_image_path = processed_images_folder_path + "\\" + str(image_idex) + ".png"
 
             canvas.save(filename = processed_image_path)
 
@@ -455,6 +586,24 @@ class window(QMainWindow):
             return False
 
 
+    # =============== Show input dialog =============== #
+    def show_input_dialog(self, title, label):
+        text, ok = QInputDialog.getText(self, title, label)
+
+        if ok:
+            return text
+    
+    # =============== Clear Folder By Directory Path =============== #
+    def clear_folder_contents(self, folder_path):
+        for filename in os.listdir(folder_path):
+            file_path = os.path.join(folder_path, filename)
+            try:
+                if os.path.isfile(file_path) or os.path.islink(file_path):
+                    os.unlink(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
+            except Exception as e:
+                print('Failed to delete %s. Reason: %s' % (file_path, e))
 class PhotoViewer(QtWidgets.QGraphicsView):
     photoClicked = QtCore.pyqtSignal(QtCore.QPoint)
 

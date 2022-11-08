@@ -19,6 +19,7 @@ from wand import drawing
 from wand.font import Font
 
 from pytesseract import pytesseract
+from pytesseract import Output
 from manga_ocr import MangaOcr
 
 # from deepl import Translator
@@ -28,12 +29,16 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support import expected_conditions as EC
 
 import cv2
+from cv2 import dnn_DetectionModel as dnn
 
 # Only needed for access to command line arguments
 import sys
 
 # imuils
 from imutils.object_detection import non_max_suppression
+import argparse
+
+pytesseract.tesseract_cmd = "C:\\Program Files\\Tesseract-OCR\\tesseract.exe"
 
 
 button_width = 100
@@ -92,7 +97,7 @@ combo_box_iteration_height = button_height
 combo_box_iteration_loc_X = retranslate_btn_loc_X
 combo_box_iteration_loc_Y = retranslate_btn_loc_Y + button_height + vertical_distance_to_prev
 
-iteration_list = ("1", "2", "3", "4", "5", "6", "7", "8", "9")
+iteration_list = ("1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11")
 
 combo_box_run_option_width = button_width
 combo_box_run_option_height = button_height
@@ -225,7 +230,7 @@ class window(QMainWindow):
         self.create_image_copy(image_path)
 
         pixmap = QPixmap(duplicated_pic_path)
-        self.pre_translate_image_viewer.setPhoto(pixmap)
+        # self.pre_translate_image_viewer.setPhoto(pixmap)
 
         contour_list = self.detect_text_boxes()
 
@@ -233,7 +238,7 @@ class window(QMainWindow):
 
         self.process_text_box_images(cropped_text_boxes, contour_list)
 
-        # self.scan_text_box_for_text(image_path)
+        self.scan_text_box_for_text(image_path)
 
         
 
@@ -290,16 +295,17 @@ class window(QMainWindow):
         if self.show_image_check_box.isChecked():
             # cv2.imshow("mask", mask)
             # cv2.imshow("img2gray", img2gray)
-            cv2.imshow("new_img", new_img)
+            # cv2.imshow("new_img", new_img)
             cv2.imshow("final", dilated)
             # cv2.waitKey(0)
 
         if not continue_process:
             return
+        contours, hierarchy = cv2.findContours(dilated, cv2.RETR_TREE, cv2.CHAIN_APPROX_NONE)  # findContours returns 3 variables for getting contours
 
-        contours, hierarchy = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # findContours returns 3 variables for getting contours
+        # contours, hierarchy = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)  # findContours returns 3 variables for getting contours
 
-        self.filter_rectangular_contours(contours, img)
+        # self.filter_rectangular_contours(contours, img)
 
         # contour list
         contour_list = defaultdict(list)
@@ -311,18 +317,25 @@ class window(QMainWindow):
             current_hierarchy = component[1]
 
             # parent_hierachy = current_hierarchy[2]
-            # if parent_hierachy > 0:
-            #     continue
+            if current_hierarchy[2] == -1:
+                continue
 
             # get rectangle bounding contour
             
             # 
+
+            [x, y, w, h] = cv2.boundingRect(current_contour)
+            
             if self.is_as_big_as_img(current_contour, img):
                 print("RID THIS CONTOUR" + str(current_contour), str(img.shape))
                 continue
 
-            [x, y, w, h] = cv2.boundingRect(current_contour)
-            
+            if w < 10:
+                print("skipped")
+                continue
+            # if y < 10:
+            #     continue
+
             contour_rect = [x, y, w, h]
 
             for component in contour_rect:
@@ -334,7 +347,7 @@ class window(QMainWindow):
                 continue
 
             # draw rectangle around contour on original image
-            cv2.rectangle(img, (x, y), (x + w, y + h), (255, 0, 255), 2)
+            cv2.rectangle(dilated, (x, y), (x + w, y + h), (255, 0, 0), 2)
 
             '''
             #you can crop image and send to OCR  , false detected will return no text :)
@@ -345,7 +358,7 @@ class window(QMainWindow):
             index = index + 1
 
             '''
-        cv2.imshow("img", img)
+        cv2.imshow("img", dilated)
         return contour_list
 
     def filter_rectangular_contours(self, contour_list, img):

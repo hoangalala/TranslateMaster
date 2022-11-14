@@ -1,1 +1,1 @@
-__all__ = ["ProcessImage", "GlobalVariables", "SeleniumOperations", "DrawScreen"]
+__all__ = ["ProcessImage", "GlobalVariables", "SeleniumOperations", "AutoScanWindow"]

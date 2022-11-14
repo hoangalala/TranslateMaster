@@ -84,3 +84,6 @@ processed_images_folder_path = process_factory_folder_path + "\\processed_images
 
 duplicated_pic_path = process_factory_folder_path + "\\temp.png"
 translated_pic_path = process_factory_folder_path + "\\temp_translated.png"
+
+main_window_title = "Main interface"
+auto_scan_window_title = "Auto scan interface"

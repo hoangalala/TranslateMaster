@@ -8,6 +8,7 @@ from PyQt6 import QtCore, QtGui
 from classes import GlobalVariables
 from classes import ProcessImage
 from classes import SeleniumOperations
+from classes import DrawScreen
 
 def call_auto_scan_window(previous_window):
     # app = QApplication(sys.argv)
@@ -35,11 +36,8 @@ def set_screen(auto_scan_window):
     auto_scan_window.setFixedSize(screen_width, screen_height)
 
     # =============== Select File Button =============== #
-    select_file_btn = QPushButton(auto_scan_window)
-    select_file_btn.setText(GlobalVariables.select_file_btn_txt)
-    select_file_btn.setGeometry(GlobalVariables.select_file_btn_loc_X,GlobalVariables.select_file_btn_loc_Y,GlobalVariables.button_width,GlobalVariables.button_height)
-
-    select_file_btn.clicked.connect(lambda: open_dialog())
+    select_file_btn = DrawScreen.draw_button(auto_scan_window, GlobalVariables.select_file_btn_txt, GlobalVariables.select_file_btn_rect)
+    select_file_btn.clicked.connect(lambda: open_dialog(auto_scan_window))
 
     # =============== Original Text Log Box =============== #
     text_box_original = QtWidgets.QTextEdit(auto_scan_window)
@@ -58,9 +56,7 @@ def set_screen(auto_scan_window):
     combo_box_mode.setGeometry(GlobalVariables.combo_box_mode_loc_X, GlobalVariables.combo_box_mode_loc_Y, GlobalVariables.combo_box_mode_width, GlobalVariables.combo_box_mode_height)
 
     # =============== Retranlsate Button =============== #
-    auto_scan_window.retranslate_btn = QPushButton(auto_scan_window)
-    auto_scan_window.retranslate_btn.setText(GlobalVariables.retranslate_btn_txt)
-    auto_scan_window.retranslate_btn.setGeometry(GlobalVariables.retranslate_btn_loc_X, GlobalVariables.retranslate_btn_loc_Y, GlobalVariables.button_width, GlobalVariables.button_height)
+    retranslate_btn = DrawScreen.draw_button(auto_scan_window, GlobalVariables.retranslate_btn_txt, GlobalVariables.retranslate_btn_rect)
     auto_scan_window.retranslate_btn.clicked.connect(lambda: auto_scan_window.translate_text(auto_scan_window.text_box_original.toPlainText()))
 
     # =============== Pre Translate Image Viewer =============== #
@@ -88,15 +84,15 @@ def set_screen(auto_scan_window):
     auto_scan_window.show_image_check_box.setText(GlobalVariables.check_box_show_image_text)
 
 def open_dialog(auto_scan_window):
-    image_path = QFileDialog.getOpenFileName(
-        auto_scan_window,
-        "Open File",
-        "",
-        "All Files (*);; Python Files (*.py);; PNG Files (*.png)",
-    )
-    image_path = image_path[0]
-    # if self.check_string_not_blank(image_path):
     try:
+        image_path = QFileDialog.getOpenFileName(
+            auto_scan_window,
+            "Open File",
+            "",
+            "All Files (*);; Python Files (*.py);; PNG Files (*.png)",
+        )
+        image_path = image_path[0]
+        # if self.check_string_not_blank(image_path):
         ProcessImage.process_image(auto_scan_window, GlobalVariables.duplicated_pic_path)
     except BaseException as e:
         print(str(e))

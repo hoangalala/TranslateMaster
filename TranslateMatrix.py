@@ -29,10 +29,20 @@ def set_screen(main_window):
     auto_mode_select_btn = DrawScreen.draw_button(main_window, GlobalVariables.auto_scan_mode_select_btn_text, GlobalVariables.auto_scan_mode_select_btn_rect)
     auto_mode_select_btn.clicked.connect(lambda: auto_mode_select_btn_clicked(main_window, auto_mode_select_btn))
 
-def auto_mode_select_btn_clicked(main_window, auto_mode_select_btn):
+    # =============== Auto Mode Select Button =============== #
+    exit_btn = DrawScreen.draw_button_bottom_left(main_window, GlobalVariables.exit_btn_txt, GlobalVariables.exit_btn_rect)
+    exit_btn.clicked.connect(lambda: exit_btn_clicked(main_window))
+
+def auto_mode_select_btn_clicked(main_window: window, auto_mode_select_btn):
     QPushButton.setEnabled(auto_mode_select_btn, False)
-    AutoScanWindow.call_auto_scan_window(main_window)
-    # QPushButton.setDisabled(auto_mode_select_btn, True)
+    main_window.hide()
+    main_window.auto_scan_window = AutoScanWindow.window()
+    main_window.auto_scan_window.exec()
+    main_window.show()
+    QPushButton.setEnabled(auto_mode_select_btn, True)
+
+def exit_btn_clicked(main_window: window):
+    main_window.close()
 
 def My_app():
     app = QApplication(sys.argv)

@@ -16,15 +16,30 @@ def call_auto_scan_window(previous_window):
     win.show()
     # sys.exit(app.exec())
 
-class window(QMainWindow):
-    def __init__(self):
-        super(window, self).__init__()
+class window(QtWidgets.QDialog):
+    def __init__(self, parent=None):
+        QtWidgets.QDialog.__init__(self, parent)
+        # self.initUI()
+
         self.setWindowTitle(GlobalVariables.auto_scan_window_title)
-            # =============== Open Chrome Window =============== #
-        # self.open_chrome_window()
+        # =============== Open Chrome Window =============== #
         self.driver = SeleniumOperations.open_chrome_window()
 
         set_screen(self)
+
+        self.show()
+
+    def closeEvent(self, a0: QtGui.QCloseEvent) -> None:
+        self.driver.quit()
+        return super().closeEvent(a0)
+
+    # def __init__(self):
+    #     super(window, self).__init__()
+    #     self.setWindowTitle(GlobalVariables.auto_scan_window_title)
+    #     # =============== Open Chrome Window =============== #
+    #     self.driver = SeleniumOperations.open_chrome_window()
+
+    #     set_screen(self)
 
 
 
@@ -57,7 +72,7 @@ def set_screen(auto_scan_window):
 
     # =============== Retranlsate Button =============== #
     retranslate_btn = DrawScreen.draw_button(auto_scan_window, GlobalVariables.retranslate_btn_txt, GlobalVariables.retranslate_btn_rect)
-    auto_scan_window.retranslate_btn.clicked.connect(lambda: auto_scan_window.translate_text(auto_scan_window.text_box_original.toPlainText()))
+    retranslate_btn.clicked.connect(lambda: auto_scan_window.translate_text(auto_scan_window.text_box_original.toPlainText()))
 
     # =============== Pre Translate Image Viewer =============== #
     auto_scan_window.pre_translate_image_viewer = PhotoViewer(auto_scan_window)
@@ -83,6 +98,11 @@ def set_screen(auto_scan_window):
     auto_scan_window.show_image_check_box.move(GlobalVariables.check_box_show_image_loc_X, GlobalVariables.check_box_show_image_loc_Y)
     auto_scan_window.show_image_check_box.setText(GlobalVariables.check_box_show_image_text)
 
+    # =============== Back Button =============== #
+    back_btn = DrawScreen.draw_button_bottom_left(auto_scan_window, GlobalVariables.back_btn_txt, GlobalVariables.auto_scan_mode_select_btn_rect)
+    back_btn.clicked.connect(lambda: back_btn_clicked(auto_scan_window))
+
+
 def open_dialog(auto_scan_window):
     try:
         image_path = QFileDialog.getOpenFileName(
@@ -97,6 +117,10 @@ def open_dialog(auto_scan_window):
     except BaseException as e:
         print(str(e))
         return
+
+def back_btn_clicked(auto_scan_window: window):
+    auto_scan_window.close()
+
 
 
 

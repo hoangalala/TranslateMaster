@@ -97,7 +97,20 @@ check_box_show_image_loc_Y = combo_box_run_option_loc_Y + button_height + vertic
 check_box_show_image_text = "Show Image"
 
 # =============== Back button =============== #
+back_btn_txt = "Back"
+back_btn_width = button_width
+back_btn_height = button_height
+back_btn_loc_X = select_file_btn_loc_X
+back_btn_loc_Y = 10     #Random number
+back_btn_rect = (back_btn_loc_X, back_btn_loc_Y, back_btn_width, back_btn_height)
 
+# =============== Exit button =============== #
+exit_btn_txt = "Exit"
+exit_btn_width = button_width
+exit_btn_height = button_height
+exit_btn_loc_X = select_file_btn_loc_X
+exit_btn_loc_Y = 10     #Random number
+exit_btn_rect = (exit_btn_loc_X, exit_btn_loc_Y, exit_btn_width, exit_btn_height)
 
 tessdata_dir_config = '--tessdata-dir "C:\\Program Files\\Tesseract-OCR\\tessdata"'  #C:\\Program Files\\Tesseract-OCR\\tessdata
 pytesseract_jpn_lgn = "jpn"
